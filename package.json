@@ -1,0 +1,23 @@
+{
+    "name": "@koye/start-server",
+    "version": "1.0.0",
+    "description": "Koye CLI Start Server - Handles auth, init config, and install.sh hosting",
+    "main": "src/index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/index.js",
+        "dev": "nodemon src/index.js"
+    },
+    "dependencies": {
+        "express": "^4.18.2",
+        "cors": "^2.8.5",
+        "dotenv": "^16.3.1",
+        "@supabase/supabase-js": "^2.39.0",
+        "bcryptjs": "^2.4.3",
+        "jsonwebtoken": "^9.0.2",
+        "morgan": "^1.10.0"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.2"
+    }
+}
