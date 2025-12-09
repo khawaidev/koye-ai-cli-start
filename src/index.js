@@ -1,3 +1,5 @@
+
+
 /**
  * KOYE Start Server
  * 
@@ -9,12 +11,12 @@
  * - Validate CLI tokens
  */
 
-import express from 'express';
-import cors from 'cors';
-import morgan from 'morgan';
-import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import express from 'express';
 import jwt from 'jsonwebtoken';
+import morgan from 'morgan';
 
 dotenv.config();
 
@@ -706,6 +708,7 @@ app.get('/health', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-    console.log(\`🚀 KOYE Start Server running on port \${PORT}\`);
-    console.log(\`   Install: curl -fsSL http://localhost:\${PORT}/install.sh | bash\`);
+    console.log(`🚀 KOYE Start Server running on port ${PORT}`);
+    console.log(`   Install: curl -fsSL http://localhost:${PORT}/install.sh | bash`);
 });
+
