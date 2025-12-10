@@ -1,4 +1,5 @@
 
+
 /**
  * KOYE Start Server
  * 
@@ -88,6 +89,9 @@ echo ""
 echo "📁 Setting up KOYE directories..."
 mkdir -p "\${KOYE_HOME}"
 mkdir -p "\${KOYE_BIN}"
+
+# Create package.json to mark as ES module
+echo '{"name":"koye-cli","version":"1.0.0","type":"module"}' > "\${KOYE_HOME}/package.json"
 
 # Download the CLI script
 echo "📦 Downloading KOYE CLI..."
@@ -197,6 +201,10 @@ if (-not (Test-Path $KOYE_BIN)) { New-Item -ItemType Directory -Path $KOYE_BIN -
 Write-Host "Downloading KOYE CLI..." -ForegroundColor Yellow
 Invoke-WebRequest -Uri "${START_SERVER_URL}/cli/koye.js" -OutFile "$KOYE_BIN\\koye.js" -UseBasicParsing
 
+
+# Create package.json to mark as ES module
+Set-Content -Path "$KOYE_HOME\\package.json" -Value '{"name":"koye-cli","version":"1.0.0","type":"module"}'
+
 # Create batch wrapper
 Set-Content -Path "$KOYE_BIN\\koye.cmd" -Value '@echo off\nnode "%USERPROFILE%\\.koye\\bin\\koye.js" %*'
 
@@ -228,9 +236,10 @@ app.get('/cli/koye.js', (req, res) => {
  */
 
 import { createInterface } from 'readline';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, renameSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
+import { exec } from 'child_process';
 
 const KOYE_HOME = join(homedir(), '.koye');
 const AUTH_FILE = join(KOYE_HOME, 'auth.json');
@@ -281,6 +290,69 @@ async function apiRequest(server, endpoint, options = {}) {
 function prompt(question) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     return new Promise(resolve => rl.question(question, answer => { rl.close(); resolve(answer); }));
+}
+
+function runCommand(command) {
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: process.cwd(), maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+            if (error) reject(error);
+            else resolve({ stdout, stderr });
+        });
+    });
+}
+
+async function executeLocalAction(action) {
+    const cwd = process.cwd();
+    try {
+        switch (action.action) {
+            case 'create_file': {
+                const filePath = join(cwd, action.params.path);
+                mkdirSync(dirname(filePath), { recursive: true });
+                writeFileSync(filePath, action.params.content || '');
+                return { success: true, action: action.action, path: action.params.path };
+            }
+            case 'delete_file': {
+                const filePath = join(cwd, action.params.path);
+                if (existsSync(filePath)) {
+                    unlinkSync(filePath);
+                    return { success: true, action: action.action, path: action.params.path };
+                }
+                return { success: false, action: action.action, error: 'File not found' };
+            }
+            case 'rename_file': {
+                const fromPath = join(cwd, action.params.from);
+                const toPath = join(cwd, action.params.to);
+                mkdirSync(dirname(toPath), { recursive: true });
+                renameSync(fromPath, toPath);
+                return { success: true, action: action.action, from: action.params.from, to: action.params.to };
+            }
+            case 'create_folder': {
+                const folderPath = join(cwd, action.params.path);
+                mkdirSync(folderPath, { recursive: true });
+                return { success: true, action: action.action, path: action.params.path };
+            }
+            case 'delete_folder': {
+                const folderPath = join(cwd, action.params.path);
+                if (existsSync(folderPath)) {
+                    rmSync(folderPath, { recursive: true, force: true });
+                    return { success: true, action: action.action, path: action.params.path };
+                }
+                return { success: false, action: action.action, error: 'Folder not found' };
+            }
+            case 'run_command': {
+                console.log('\\n  ⏳ Running: ' + action.params.command);
+                const result = await runCommand(action.params.command);
+                if (result.stdout) console.log(result.stdout);
+                if (result.stderr) console.log('\\x1b[33m' + result.stderr + '\\x1b[0m');
+                return { success: true, action: action.action, command: action.params.command };
+            }
+            default:
+                // Server-side actions (generate_image, etc.) - just display result
+                return action;
+        }
+    } catch (e) {
+        return { success: false, action: action.action, error: e.message };
+    }
 }
 
 // ============== Commands ==============
@@ -520,9 +592,13 @@ async function cmdChat() {
             }
 
             try {
+                const osInfo = platform();
                 const response = await apiRequest('main', \`/chat/sessions/\${sessionId}/messages\`, {
                     method: 'POST',
-                    body: JSON.stringify({ content: input })
+                    body: JSON.stringify({ 
+                        content: input,
+                        context: { os: osInfo, cwd: process.cwd() }
+                    })
                 });
 
                 if (response.success) {
@@ -530,11 +606,21 @@ async function cmdChat() {
 
                     if (response.actions?.length > 0) {
                         console.log('\\n─────────────────────────────────────────────────');
+                        const localActions = ['create_file', 'delete_file', 'rename_file', 'create_folder', 'delete_folder', 'run_command'];
+                        
                         for (const action of response.actions) {
-                            if (action.success) {
-                                console.log(\`  ✅ \${action.action}: \${action.url || action.path || 'done'}\`);
+                            let result = action;
+                            
+                            // Execute local actions on the client
+                            if (localActions.includes(action.action) && action.params) {
+                                result = await executeLocalAction(action);
+                            }
+                            
+                            if (result.success) {
+                                const detail = result.url || result.path || result.command || (result.from ? result.from + ' → ' + result.to : null) || 'done';
+                                console.log(\`  ✅ \${result.action}: \${detail}\`);
                             } else {
-                                console.log(\`  ❌ \${action.action}: \${action.error}\`);
+                                console.log(\`  ❌ \${result.action}: \${result.error}\`);
                             }
                         }
                         console.log('─────────────────────────────────────────────────');
