@@ -1,5 +1,4 @@
 
-
 /**
  * KOYE Start Server
  * 
@@ -158,6 +157,63 @@ echo ""
 
     res.setHeader('Content-Type', 'text/plain');
     res.setHeader('Content-Disposition', 'inline; filename="install.sh"');
+    res.send(installScript);
+});
+
+// PowerShell install script for Windows users
+app.get('/install.ps1', (req, res) => {
+    const installScript = `# KOYE CLI - Windows Installer
+# Installation: irm ${START_SERVER_URL}/install.ps1 | iex
+
+$ErrorActionPreference = "Stop"
+$KOYE_VERSION = "1.0.0"
+$KOYE_HOME = "$env:USERPROFILE\\.koye"
+$KOYE_BIN = "$KOYE_HOME\\bin"
+
+Write-Host ""
+Write-Host "KOYE CLI Installer v$KOYE_VERSION" -ForegroundColor Cyan
+Write-Host ""
+
+# Check for Node.js
+try {
+    $nodeVersion = node -v 2>$null
+    if (-not $nodeVersion) { throw "Node not found" }
+    $majorVersion = [int]($nodeVersion -replace 'v(\\d+).*', '\$1')
+    if ($majorVersion -lt 18) {
+        Write-Host "Node.js 18+ required. Found: $nodeVersion" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Node.js $nodeVersion detected" -ForegroundColor Green
+} catch {
+    Write-Host "Node.js is required. Install from: https://nodejs.org" -ForegroundColor Red
+    exit 1
+}
+
+# Create directories
+if (-not (Test-Path $KOYE_HOME)) { New-Item -ItemType Directory -Path $KOYE_HOME -Force | Out-Null }
+if (-not (Test-Path $KOYE_BIN)) { New-Item -ItemType Directory -Path $KOYE_BIN -Force | Out-Null }
+
+# Download CLI
+Write-Host "Downloading KOYE CLI..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "${START_SERVER_URL}/cli/koye.js" -OutFile "$KOYE_BIN\\koye.js" -UseBasicParsing
+
+# Create batch wrapper
+Set-Content -Path "$KOYE_BIN\\koye.cmd" -Value '@echo off\nnode "%USERPROFILE%\\.koye\\bin\\koye.js" %*'
+
+# Add to PATH
+$userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($userPath -notlike "*$KOYE_BIN*") {
+    [Environment]::SetEnvironmentVariable("PATH", "$KOYE_BIN;$userPath", "User")
+    $env:PATH = "$KOYE_BIN;$env:PATH"
+}
+
+Write-Host ""
+Write-Host "KOYE CLI installed! Open a NEW terminal and run: koye help" -ForegroundColor Green
+Write-Host ""
+`;
+
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Content-Disposition', 'inline; filename="install.ps1"');
     res.send(installScript);
 });
 
@@ -711,4 +767,3 @@ app.listen(PORT, () => {
     console.log(`🚀 KOYE Start Server running on port ${PORT}`);
     console.log(`   Install: curl -fsSL http://localhost:${PORT}/install.sh | bash`);
 });
-
